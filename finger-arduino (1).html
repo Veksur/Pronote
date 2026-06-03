@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Détection doigts → Arduino</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0d0d;color:#f0f0f0;font-family:'Inter',system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
+h1{font-size:22px;font-weight:700;margin-bottom:4px;letter-spacing:1px}
+.sub{font-size:13px;color:#666;margin-bottom:20px}
+.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:16px;margin-bottom:14px;width:100%;max-width:640px}
+.card-title{font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#666;margin-bottom:12px}
+/* Caméra */
+.cam-wrap{position:relative;display:block;border-radius:8px;overflow:hidden;background:#000;width:100%}
+video{display:block;width:100%;transform:scaleX(-1)}
+canvas#overlay{position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1);pointer-events:none}
+/* Gros chiffre */
+#big-num{position:absolute;top:10px;right:14px;font-size:80px;font-weight:900;line-height:1;color:#fff;text-shadow:0 2px 20px rgba(0,0,0,.8);min-width:60px;text-align:center}
+/* LEDs */
+.leds{display:flex;gap:12px;justify-content:center;padding:8px 0}
+.led{width:44px;height:44px;border-radius:50%;border:2px solid #333;transition:all .2s;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#444;flex-direction:column;gap:2px}
+.led.on{color:#fff;border-color:transparent}
+.led-1{background:#2a1010}.led-1.on{background:#ff3333;box-shadow:0 0 16px #ff3333aa}
+.led-2{background:#2a1a10}.led-2.on{background:#ff8800;box-shadow:0 0 16px #ff8800aa}
+.led-3{background:#2a2a10}.led-3.on{background:#ffcc00;box-shadow:0 0 16px #ffcc00aa}
+.led-4{background:#102a10}.led-4.on{background:#33cc33;box-shadow:0 0 16px #33cc33aa}
+.led-5{background:#101a2a}.led-5.on{background:#3399ff;box-shadow:0 0 16px #3399ffaa}
+.led-name{font-size:9px;opacity:.7}
+/* Boutons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #333;background:#1a1a1a;color:#f0f0f0;transition:all .15s}
+.btn:hover{background:#252525;border-color:#444}
+.btn.green{border-color:#3b6d11;color:#97c459}
+.btn.green:hover{background:#1a2a10}
+.btn.red{border-color:#a32d2d;color:#f09595}
+.btn.red:hover{background:#2a1010}
+.btn.blue{border-color:#185fa5;color:#85b7eb}
+.btn.blue:hover{background:#0c1e35}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+/* Status */
+#status-dot{width:8px;height:8px;border-radius:50%;background:#444;display:inline-block;margin-right:6px;transition:background .2s}
+#status-dot.connected{background:#33cc33}
+#status-dot.error{background:#ff3333}
+#status-text{font-size:13px;color:#888}
+/* Log */
+#log{font-size:11px;font-family:monospace;color:#666;height:60px;overflow-y:auto;background:#111;border-radius:6px;padding:8px;margin-top:8px}
+#log span{display:block;line-height:1.6}
+#log .ok{color:#97c459}
+#log .err{color:#f09595}
+#log .info{color:#85b7eb}
+/* Doigts pills */
+.finger-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{padding:4px 10px;border-radius:20px;font-size:11px;background:#1a1a1a;border:1px solid #2a2a2a;color:#666;transition:all .15s}
+.pill.active{background:#1a2a10;border-color:#3b6d11;color:#97c459}
+/* Infos port */
+.port-info{font-size:11px;color:#555;margin-top:6px}
+</style>
+</head>
+<body>
+
+<h1>Doigts → Arduino LEDs</h1>
+<p class="sub">Détection via caméra · Contrôle via USB · Fonctionne sur Chrome</p>
+
+<!-- STATUT CONNEXION -->
+<div class="card">
+  <div class="card-title">Connexion Arduino</div>
+  <div style="display:flex;align-items:center;margin-bottom:10px">
+    <span id="status-dot"></span>
+    <span id="status-text">Non connecté</span>
+  </div>
+  <div class="btn-row">
+    <button class="btn blue" id="btn-connect" onclick="connectArduino()">🔌 Connecter Arduino</button>
+    <button class="btn red" id="btn-disconnect" onclick="disconnectArduino()" disabled>Déconnecter</button>
+    <button class="btn" onclick="testLeds()">Test LEDs</button>
+  </div>
+  <div class="port-info">Utilise Chrome ou Edge · Branche l'Arduino en USB avant de cliquer</div>
+  <div id="log"></div>
+</div>
+
+<!-- CAMÉRA -->
+<div class="card">
+  <div class="card-title">Caméra — détection des doigts</div>
+  <div class="cam-wrap">
+    <video id="vid" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="big-num">–</div>
+  </div>
+  <div class="finger-pills" id="pills">
+    <span class="pill" id="p0">Pouce</span>
+    <span class="pill" id="p1">Index</span>
+    <span class="pill" id="p2">Majeur</span>
+    <span class="pill" id="p3">Annulaire</span>
+    <span class="pill" id="p4">Auriculaire</span>
+  </div>
+  <p id="cam-status" style="font-size:12px;color:#555;margin-top:8px">Chargement de la caméra...</p>
+</div>
+
+<!-- LEDs VIRTUELLES -->
+<div class="card">
+  <div class="card-title">LEDs virtuelles (aperçu)</div>
+  <div class="leds">
+    <div class="led led-1" id="led1"><span>1</span><span class="led-name">Pouce</span></div>
+    <div class="led led-2" id="led2"><span>2</span><span class="led-name">Index</span></div>
+    <div class="led led-3" id="led3"><span>3</span><span class="led-name">Majeur</span></div>
+    <div class="led led-4" id="led4"><span>4</span><span class="led-name">Annulaire</span></div>
+    <div class="led led-5" id="led5"><span>5</span><span class="led-name">Auriculaire</span></div>
+  </div>
+</div>
+
+<!-- CODE ARDUINO -->
+<div class="card">
+  <div class="card-title">Code à uploader sur l'Arduino (une seule fois)</div>
+  <pre style="background:#111;border-radius:8px;padding:14px;font-size:12px;line-height:1.7;overflow-x:auto;color:#97c459;border:1px solid #222"><code>const int ledPins[5] = {2, 3, 4, 5, 6};
+
+void setup() {
+  Serial.begin(9600);
+  for (int i = 0; i &lt; 5; i++) {
+    pinMode(ledPins[i], OUTPUT);
+  }
+}
+
+void loop() {
+  if (Serial.available() &gt; 0) {
+    int count = Serial.read() - '0';
+    for (int i = 0; i &lt; 5; i++) {
+      digitalWrite(ledPins[i], i &lt; count ? HIGH : LOW);
+    }
+  }
+}</code></pre>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script>
+// ── STATE ──
+let port = null, writer = null, lastCount = -1;
+const TIPS = [4,8,12,16,20], PIPS = [3,6,10,14,18];
+
+// ── LOG ──
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  const s = document.createElement('span');
+  s.className = type;
+  s.textContent = new Date().toLocaleTimeString() + ' › ' + msg;
+  el.appendChild(s);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── SERIAL ──
+async function connectArduino() {
+  if (!navigator.serial) {
+    setStatus('Web Serial non supporté — utilise Chrome ou Edge', 'error');
+    log('Web Serial API non disponible dans ce navigateur', 'err');
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    writer = port.writable.getWriter();
+    setStatus('Arduino connecté ✓', 'connected');
+    log('Port ouvert @ 9600 baud', 'ok');
+    document.getElementById('btn-connect').disabled = true;
+    document.getElementById('btn-disconnect').disabled = false;
+  } catch(e) {
+    setStatus('Connexion annulée ou erreur', 'error');
+    log('Erreur: ' + e.message, 'err');
+  }
+}
+
+async function disconnectArduino() {
+  try {
+    if (writer) { writer.releaseLock(); writer = null; }
+    if (port) { await port.close(); port = null; }
+    setStatus('Déconnecté', '');
+    log('Port fermé', 'info');
+    document.getElementById('btn-connect').disabled = false;
+    document.getElementById('btn-disconnect').disabled = true;
+  } catch(e) { log('Erreur fermeture: ' + e.message, 'err'); }
+}
+
+async function sendToArduino(n) {
+  if (!writer) return;
+  try {
+    await writer.write(new TextEncoder().encode(String(n)));
+  } catch(e) { log('Erreur envoi: ' + e.message, 'err'); }
+}
+
+function setStatus(msg, state) {
+  const dot = document.getElementById('status-dot');
+  document.getElementById('status-text').textContent = msg;
+  dot.className = state;
+}
+
+async function testLeds() {
+  log('Test LEDs: 0→5→0', 'info');
+  for (let i = 0; i <= 5; i++) {
+    updateLeds(i);
+    await sendToArduino(i);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  for (let i = 4; i >= 0; i--) {
+    updateLeds(i);
+    await sendToArduino(i);
+    await new Promise(r => setTimeout(r, 250));
+  }
+}
+
+// ── UI ──
+function updateLeds(n) {
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('led'+i).classList.toggle('on', i <= n);
+  }
+  const num = document.getElementById('big-num');
+  num.textContent = n;
+  const colors = ['#fff','#ff4444','#ff8800','#ffcc00','#33cc33','#3399ff'];
+  num.style.color = colors[n] || '#fff';
+}
+
+function updatePills(extended) {
+  extended.forEach((on, i) => {
+    document.getElementById('p'+i).classList.toggle('active', on);
+  });
+}
+
+// ── MEDIAPIPE ──
+const vid = document.getElementById('vid');
+const ovCanvas = document.getElementById('overlay');
+const octx = ovCanvas.getContext('2d');
+
+function countFingers(lm) {
+  const ext = [];
+  ext.push(Math.abs(lm[4].x - lm[9].x) > 0.1);
+  for (let i = 1; i < 5; i++) ext.push(lm[TIPS[i]].y < lm[PIPS[i]].y - 0.02);
+  return ext;
+}
+
+const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.5 });
+
+hands.onResults(async res => {
+  // resize overlay
+  ovCanvas.width = vid.videoWidth;
+  ovCanvas.height = vid.videoHeight;
+  octx.clearRect(0,0,ovCanvas.width,ovCanvas.height);
+
+  if (!res.multiHandLandmarks || !res.multiHandLandmarks.length) {
+    document.getElementById('big-num').textContent = '–';
+    document.getElementById('big-num').style.color = 'rgba(255,255,255,0.3)';
+    document.getElementById('cam-status').textContent = 'Aucune main détectée';
+    updatePills([false,false,false,false,false]);
+    if (lastCount !== 0) { updateLeds(0); sendToArduino(0); lastCount=0; }
+    return;
+  }
+
+  const lm = res.multiHandLandmarks[0];
+  drawConnectors(octx, lm, HAND_CONNECTIONS, {color:'rgba(255,255,255,0.35)',lineWidth:2});
+  lm.forEach((pt,i) => {
+    const x=pt.x*ovCanvas.width, y=pt.y*ovCanvas.height;
+    octx.beginPath();
+    octx.arc(x,y,TIPS.includes(i)?7:4,0,Math.PI*2);
+    octx.fillStyle=TIPS.includes(i)?'#fff':'rgba(255,255,255,0.5)';
+    octx.fill();
+  });
+
+  const ext = countFingers(lm);
+  const count = ext.filter(Boolean).length;
+  updatePills(ext);
+  updateLeds(count);
+  document.getElementById('cam-status').textContent = `Main détectée — ${count} doigt${count>1?'s':''} levé${count>1?'s':''}`;
+
+  if (count !== lastCount) {
+    await sendToArduino(count);
+    if (count !== lastCount) log(`Envoi ${count} → Arduino`, 'ok');
+    lastCount = count;
+  }
+});
+
+// ── CAMÉRA ──
+async function startCam() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+    vid.srcObject = stream;
+    await vid.play();
+    document.getElementById('cam-status').textContent = 'Caméra active — montre ta main !';
+    const cam = new Camera(vid, {
+      onFrame: async () => { await hands.send({image:vid}); },
+      width:640, height:480
+    });
+    cam.start();
+  } catch(e) {
+    document.getElementById('cam-status').textContent = 'Accès caméra refusé — autorise dans le navigateur';
+  }
+}
+
+startCam();
+</script>
+</body>
+</html>
