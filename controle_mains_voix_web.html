@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle mains + voix</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101114;
+      --panel: #191c21;
+      --panel-2: #20242b;
+      --text: #f2f5f7;
+      --muted: #aab2bd;
+      --accent: #43d17a;
+      --warn: #f2bc57;
+      --danger: #ff6b6b;
+      --line: #343a44;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) 360px;
+      min-height: 100vh;
+    }
+
+    .stage {
+      position: relative;
+      background: #07080a;
+      overflow: hidden;
+    }
+
+    video, canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    .cursor {
+      position: absolute;
+      z-index: 5;
+      width: 30px;
+      height: 30px;
+      margin: -15px 0 0 -15px;
+      border: 3px solid var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 0 8px rgba(67, 209, 122, .18);
+      pointer-events: none;
+      transition: width .1s, height .1s, border-color .1s;
+    }
+
+    .cursor.clicking {
+      width: 46px;
+      height: 46px;
+      margin: -23px 0 0 -23px;
+      border-color: var(--warn);
+    }
+
+    .side {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 14px;
+      padding: 18px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    .status {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .value {
+      color: var(--text);
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #071009;
+      font-weight: 700;
+    }
+
+    .playground {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #12151a;
+      min-height: 0;
+      padding: 12px;
+    }
+
+    .tile {
+      display: grid;
+      place-items: center;
+      min-height: 90px;
+      margin-bottom: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #20242b;
+      user-select: none;
+    }
+
+    .tile.active {
+      outline: 3px solid var(--accent);
+      background: #233329;
+    }
+
+    .log {
+      height: 88px;
+      overflow: auto;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: #0c0e12;
+      font-size: 13px;
+    }
+
+    @media (max-width: 850px) {
+      body { overflow: auto; }
+      .app { grid-template-columns: 1fr; }
+      .stage { min-height: 58vh; }
+      .side { border-left: 0; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="cursor" class="cursor"></div>
+    </section>
+
+    <aside class="side">
+      <h1>Controle mains + voix</h1>
+
+      <div class="controls">
+        <button id="start" class="primary">Activer</button>
+        <button id="voice">Micro</button>
+      </div>
+
+      <div class="status">
+        <div class="row"><span>Camera</span><span id="camStatus" class="value">eteinte</span></div>
+        <div class="row"><span>Main</span><span id="handStatus" class="value">rien</span></div>
+        <div class="row"><span>Action</span><span id="actionStatus" class="value">pause</span></div>
+        <div class="row"><span>Voix</span><span id="voiceStatus" class="value">eteint</span></div>
+      </div>
+
+      <div id="playground" class="playground">
+        <div class="tile">Carte 1</div>
+        <div class="tile">Carte 2</div>
+        <div class="tile">Carte 3</div>
+        <div class="tile">Carte 4</div>
+        <div class="tile">Carte 5</div>
+        <div class="tile">Carte 6</div>
+        <div class="tile">Carte 7</div>
+        <div class="tile">Carte 8</div>
+        <div class="tile">Carte 9</div>
+        <div class="tile">Carte 10</div>
+      </div>
+
+      <div id="log" class="log"></div>
+    </aside>
+  </main>
+
+  <script type="module">
+    import {
+      FilesetResolver,
+      HandLandmarker
+    } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22";
+
+    const video = document.querySelector("#video");
+    const overlay = document.querySelector("#overlay");
+    const ctx = overlay.getContext("2d");
+    const cursor = document.querySelector("#cursor");
+    const playground = document.querySelector("#playground");
+    const startButton = document.querySelector("#start");
+    const voiceButton = document.querySelector("#voice");
+    const camStatus = document.querySelector("#camStatus");
+    const handStatus = document.querySelector("#handStatus");
+    const actionStatus = document.querySelector("#actionStatus");
+    const voiceStatus = document.querySelector("#voiceStatus");
+    const logBox = document.querySelector("#log");
+
+    let landmarker;
+    let running = false;
+    let lastClick = 0;
+    let lastScrollY = null;
+    let selectedTile = null;
+    let smoothX = window.innerWidth / 2;
+    let smoothY = window.innerHeight / 2;
+
+    function log(text) {
+      const line = document.createElement("div");
+      line.textContent = `${new Date().toLocaleTimeString()} - ${text}`;
+      logBox.prepend(line);
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function fingersUp(points) {
+      return [
+        points[4].x < points[3].x,
+        points[8].y < points[6].y,
+        points[12].y < points[10].y,
+        points[16].y < points[14].y,
+        points[20].y < points[18].y
+      ];
+    }
+
+    function moveCursor(point) {
+      const rect = overlay.getBoundingClientRect();
+      const x = rect.left + (1 - point.x) * rect.width;
+      const y = rect.top + point.y * rect.height;
+      smoothX = smoothX * 0.68 + x * 0.32;
+      smoothY = smoothY * 0.68 + y * 0.32;
+      cursor.style.left = `${smoothX}px`;
+      cursor.style.top = `${smoothY}px`;
+    }
+
+    function clickAtCursor() {
+      const el = document.elementFromPoint(smoothX, smoothY);
+      if (!el) return;
+      el.click();
+      cursor.classList.add("clicking");
+      setTimeout(() => cursor.classList.remove("clicking"), 150);
+      log("clic main");
+    }
+
+    function pickTile() {
+      const el = document.elementFromPoint(smoothX, smoothY);
+      const tile = el?.closest?.(".tile");
+      if (!tile) return;
+      selectedTile?.classList.remove("active");
+      selectedTile = tile;
+      selectedTile.classList.add("active");
+      log(`${tile.textContent} selectionnee`);
+    }
+
+    function resizeCanvas() {
+      const rect = overlay.getBoundingClientRect();
+      overlay.width = Math.round(rect.width * devicePixelRatio);
+      overlay.height = Math.round(rect.height * devicePixelRatio);
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+
+    async function startCamera() {
+      if (!landmarker) {
+        camStatus.textContent = "chargement modele";
+        const fileset = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+        );
+        landmarker = await HandLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+          },
+          runningMode: "VIDEO",
+          numHands: 1
+        });
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      resizeCanvas();
+      running = true;
+      camStatus.textContent = "activee";
+      requestAnimationFrame(loop);
+    }
+
+    function loop() {
+      if (!running) return;
+      const rect = overlay.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      const result = landmarker.detectForVideo(video, performance.now());
+      if (result.landmarks?.length) {
+        const points = result.landmarks[0];
+        const up = fingersUp(points);
+        const count = up.filter(Boolean).length;
+        const pinch = dist(points[4], points[8]) < 0.055;
+        const index = points[8];
+        moveCursor(index);
+
+        ctx.strokeStyle = "#43d17a";
+        ctx.lineWidth = 3;
+        for (const p of points) {
+          ctx.beginPath();
+          ctx.arc((1 - p.x) * rect.width, p.y * rect.height, 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        handStatus.textContent = "detectee";
+        if (up[1] && up[2] && !up[3] && !up[4]) {
+          actionStatus.textContent = "scroll";
+          if (lastScrollY !== null) {
+            const delta = (lastScrollY - index.y) * 900;
+            if (Math.abs(delta) > 8) playground.scrollBy({ top: -delta, behavior: "instant" });
+          }
+          lastScrollY = index.y;
+        } else if (count === 0) {
+          actionStatus.textContent = "poing: selection";
+          pickTile();
+          lastScrollY = null;
+        } else if (up[1] && !up[2] && !up[3] && !up[4]) {
+          actionStatus.textContent = pinch ? "pincement: clic" : "index: bouger";
+          lastScrollY = null;
+          if (pinch && performance.now() - lastClick > 650) {
+            clickAtCursor();
+            lastClick = performance.now();
+          }
+        } else {
+          actionStatus.textContent = "pause";
+          lastScrollY = null;
+        }
+      } else {
+        handStatus.textContent = "rien";
+        actionStatus.textContent = "pause";
+        lastScrollY = null;
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    function setupVoice() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        voiceStatus.textContent = "non supporte";
+        log("Utilise Chrome ou Edge pour la voix");
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = "fr-FR";
+      recognition.continuous = true;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event) => {
+        const text = event.results[event.results.length - 1][0].transcript.trim();
+        voiceStatus.textContent = text;
+        log(`voix: ${text}`);
+        runVoice(text);
+      };
+      recognition.onerror = (event) => {
+        voiceStatus.textContent = event.error;
+      };
+      recognition.onend = () => {
+        if (voiceButton.dataset.on === "1") recognition.start();
+      };
+
+      voiceButton.addEventListener("click", () => {
+        if (voiceButton.dataset.on === "1") {
+          voiceButton.dataset.on = "0";
+          voiceButton.textContent = "Micro";
+          recognition.stop();
+          voiceStatus.textContent = "eteint";
+        } else {
+          voiceButton.dataset.on = "1";
+          voiceButton.textContent = "Stop micro";
+          recognition.start();
+          voiceStatus.textContent = "ecoute";
+        }
+      });
+    }
+
+    function runVoice(text) {
+      const lower = text.toLowerCase();
+      if (lower.includes("scroll bas") || lower.includes("descend")) {
+        playground.scrollBy({ top: 260, behavior: "smooth" });
+      } else if (lower.includes("scroll haut") || lower.includes("monte")) {
+        playground.scrollBy({ top: -260, behavior: "smooth" });
+      } else if (lower.includes("clique") || lower.includes("click")) {
+        clickAtCursor();
+      } else if (lower.includes("discord") && /(appelle|appel|call)/i.test(text)) {
+        const match = text.match(/(?:appelle|appel|call)\s+(.+?)\s+(?:dans|sur)\s+discord/i)
+          || text.match(/discord\s+(?:appelle|appel|call)\s+(.+)/i);
+        const name = match?.[1]?.trim() || "T4zW";
+        log(`ouverture Discord pour ${name}`);
+        location.href = `discord://-/users/@me`;
+      }
+    }
+
+    startButton.addEventListener("click", async () => {
+      try {
+        startButton.disabled = true;
+        startButton.textContent = "Actif";
+        await startCamera();
+      } catch (error) {
+        camStatus.textContent = "erreur";
+        log(error.message);
+        startButton.disabled = false;
+        startButton.textContent = "Activer";
+      }
+    });
+
+    setupVoice();
+    addEventListener("resize", resizeCanvas);
+  </script>
+</body>
+</html>
